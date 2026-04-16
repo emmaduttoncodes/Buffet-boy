@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Buffet Boy</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a0a2e;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'Courier New', monospace;
+    overflow: hidden;
+  }
+  #gameContainer {
+    position: relative;
+    border: 4px solid #f8f878;
+    box-shadow: 0 0 30px #f8f87888;
+  }
+  canvas { display: block; image-rendering: pixelated; }
+  #ui {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 12px;
+    background: #000000cc;
+    pointer-events: none;
+  }
+  .ui-text {
+    color: #f8f878;
+    font-size: 14px;
+    font-weight: bold;
+    text-shadow: 2px 2px #000;
+    letter-spacing: 1px;
+  }
+  #overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #000000cc;
+    z-index: 10;
+  }
+  #overlay h1 {
+    color: #f8f878;
+    font-size: 36px;
+    text-shadow: 3px 3px #f83800;
+    margin-bottom: 10px;
+    letter-spacing: 3px;
+    text-align: center;
+  }
+  #overlay p {
+    color: #fcfcfc;
+    font-size: 14px;
+    margin: 5px 0;
+    text-align: center;
+    letter-spacing: 1px;
+  }
+  #overlay .sub {
+    color: #84f878;
+    font-size: 12px;
+    margin-top: 4px;
+    text-align: center;
+  }
+  #startBtn {
+    margin-top: 20px;
+    padding: 12px 32px;
+    background: #f83800;
+    color: #f8f878;
+    border: 3px solid #f8f878;
+    font-family: 'Courier New', monospace;
+    font-size: 18px;
+    font-weight: bold;
+    cursor: pointer;
+    letter-spacing: 2px;
+    text-shadow: 1px 1px #000;
+    transition: transform 0.1s;
+  }
+  #startBtn:hover { transform: scale(1.05); background: #ff6030; }
+  #levelBadge {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #000000dd;
+    border: 3px solid #f8f878;
+    padding: 20px 40px;
+    text-align: center;
+    z-index: 9;
+    pointer-events: none;
+  }
+  #levelBadge h2 { color: #f8f878; font-size: 28px; letter-spacing: 2px; }
+  #levelBadge p { color: #84f878; font-size: 14px; margin-top: 6px; }
+  .hidden { display: none !important; }
+  #controls {
+    margin-top: 8px;
+    color: #8888aa;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div id="gameContainer">
+  <canvas id="gameCanvas" width="640" height="480"></canvas>
+  <div id="ui">
+    <span class="ui-text" id="scoreDisplay">SCORE: 0</span>
+    <span class="ui-text" id="levelDisplay">LEVEL 1</span>
+    <span class="ui-text" id="foodDisplay">FOOD: 10</span>
+  </div>
+  <div id="overlay">
+    <h1>BUFFET BOY</h1>
+    <p>Protect the buffet from hungry wedding guests!</p>
+    <p class="sub">Arrow Keys: Move &nbsp;|&nbsp; SPACE: Throw Food</p>
+    <button id="startBtn">START GAME</button>
+  </div>
+  <div id="levelBadge" class="hidden">
+    <h2 id="levelBadgeTitle">LEVEL 1</h2>
+    <p id="levelBadgeDesc">Here come the kids!</p>
+  </div>
+</div>
+<div id="controls">ARROW KEYS: Move &nbsp;|&nbsp; SPACE: Throw &nbsp;|&nbsp; Protect the buffet!</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+// NES-ish palette
+const C = {
+  black: '#000000', white: '#fcfcfc',
+  yellow: '#f8f878', red: '#f83800', orange: '#f87858',
+  pink: '#f878f8', blue: '#0078f8', ltblue: '#78b8f8',
+  green: '#00b800', ltgreen: '#84f878', brown: '#503000',
+  tan: '#f8b878', purple: '#7800f8', gray: '#bcbcbc',
+  darkgray: '#3c3c3c', cream: '#fcf0c0', teal: '#00e8d8',
+  gold: '#fcc000', skin: '#f8c898'
+};
+
+// Game state
+let state = 'title'; // title, playing, levelup, gameover, win
+let score = 0, level = 1, foodCount = 10;
+let player, guests = [], projectiles = [], foodItems = [], particles = [];
+let keys = {}, frameCount = 0, spawnTimer = 0, levelTimer = 0;
+let guestsDefeated = 0, guestsNeeded = 0;
+
+// Level configs
+const LEVELS = [
+  { name: 'LEVEL 1', desc: 'The kids are coming!', guestType: 'kid',    count: 8,  speed: 1.2, spawnRate: 120 },
+  { name: 'LEVEL 2', desc: 'Hungry grannies!',     guestType: 'granny', count: 10, speed: 1.0, spawnRate: 100 },
+  { name: 'LEVEL 3', desc: 'The groomsmen arrive!',guestType: 'groom',  count: 12, speed: 1.5, spawnRate: 90  },
+  { name: 'LEVEL 4', desc: 'Flower girls charge!', guestType: 'flower', count: 14, speed: 1.8, spawnRate: 80  },
+  { name: 'LEVEL 5', desc: 'THE WHOLE WEDDING!',   guestType: 'mixed',  count: 20, speed: 2.0, spawnRate: 60  },
+];
+
+const FOOD_ITEMS = [
+  { name: 'cinnamon bun', color: C.tan,    accent: C.brown,  size: 11 },
+  { name: 'pancake',      color: C.cream,  accent: C.gold,   size: 12 },
+  { name: 'berry',        color: '#d83888',accent: '#f878c0',size: 7  },
+  { name: 'donut',        color: C.pink,   accent: C.yellow, size: 10 },
+  { name: 'cupcake',      color: '#7878f8',accent: C.pink,   size: 10 },
+  { name: 'macaron',      color: '#84f878',accent: C.white,  size: 8  },
+  { name: 'waffle',       color: C.gold,   accent: C.tan,    size: 11 },
+  { name: 'eclair',       color: C.brown,  accent: C.cream,  size: 11 },
+];
+
+// Buffet table area
+const BUFFET = { x: 160, y: 48, w: 320, h: 80 };
+
+function initLevel(lvl) {
+  const cfg = LEVELS[Math.min(lvl - 1, LEVELS.length - 1)];
+  guests = [];
+  projectiles = [];
+  particles = [];
+  spawnTimer = 0;
+  guestsDefeated = 0;
+  guestsNeeded = cfg.count + (lvl > LEVELS.length ? (lvl - LEVELS.length) * 3 : 0);
+  foodCount = Math.min(10 + lvl, 15);
+
+  // Place food items on buffet
+  foodItems = [];
+  let fx = BUFFET.x + 20;
+  for (let i = 0; i < foodCount && i < FOOD_ITEMS.length * 2; i++) {
+    const fi = FOOD_ITEMS[i % FOOD_ITEMS.length];
+    foodItems.push({ x: fx, y: BUFFET.y + BUFFET.h / 2 + 5, type: fi, eaten: false });
+    fx += (BUFFET.w - 40) / Math.min(foodCount, 14);
+  }
+  updateUI();
+}
+
+function initPlayer() {
+  player = {
+    x: W / 2, y: H - 80,
+    w: 24, h: 32,
+    vx: 0, vy: 0,
+    speed: 3,
+    facing: 'right',
+    anim: 0,
+    throwCooldown: 0,
+    hat: true
+  };
+}
+
+function spawnGuest(cfg) {
+  const side = Math.random() < 0.5 ? 'left' : 'right';
+  const x = side === 'left' ? -30 : W + 30;
+  const y = BUFFET.y + BUFFET.h + 20 + Math.random() * (H - BUFFET.y - BUFFET.h - 100);
+  const types = cfg.guestType === 'mixed'
+    ? ['kid','granny','groom','flower']
+    : [cfg.guestType];
+  const type = types[Math.floor(Math.random() * types.length)];
+
+  let extra = {};
+  if (type === 'granny') extra.speed = cfg.speed * 0.85;
+  else if (type === 'flower') extra.speed = cfg.speed * 1.1;
+  else extra.speed = cfg.speed;
+
+  guests.push({
+    x, y, w: 20, h: 30, type,
+    vx: (side === 'left' ? 1 : -1) * extra.speed,
+    vy: 0,
+    hp: type === 'groom' ? 2 : 1,
+    maxHp: type === 'groom' ? 2 : 1,
+    anim: Math.random() * Math.PI * 2,
+    stunTimer: 0,
+    atBuffet: false,
+    eatTimer: 0,
+    side,
+    wobble: 0
+  });
+}
+
+function throwProjectile() {
+  if (player.throwCooldown > 0) return;
+  // Pick a food type to throw
+  const fi = FOOD_ITEMS[Math.floor(Math.random() * FOOD_ITEMS.length)];
+  const dx = player.facing === 'right' ? 1 : player.facing === 'left' ? -1 : 0;
+  const dy = player.facing === 'up' ? -1 : player.facing === 'down' ? 1 : 0;
+  const speed = 7;
+  projectiles.push({
+    x: player.x,
+    y: player.y,
+    vx: dx * speed + (Math.random() - 0.5) * 0.5,
+    vy: dy === 0 ? (Math.random() - 0.5) * 1 : dy * speed,
+    type: fi,
+    life: 60,
+    spin: 0,
+    spinSpeed: (Math.random() - 0.5) * 0.3
+  });
+  player.throwCooldown = 18;
+  spawnParticles(player.x, player.y - 10, C.yellow, 3);
+}
+
+function spawnParticles(x, y, color, count) {
+  for (let i = 0; i < count; i++) {
+    particles.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 4,
+      vy: (Math.random() - 0.5) * 4 - 1,
+      color,
+      life: 20 + Math.random() * 20,
+      maxLife: 40,
+      size: 3 + Math.random() * 3
+    });
+  }
+}
+
+function updateUI() {
+  document.getElementById('scoreDisplay').textContent = `SCORE: ${score}`;
+  document.getElementById('levelDisplay').textContent = `LEVEL ${level}`;
+  const remaining = foodItems.filter(f => !f.eaten).length;
+  document.getElementById('foodDisplay').textContent = `FOOD: ${remaining}`;
+}
+
+function showLevelBadge(name, desc, cb) {
+  const badge = document.getElementById('levelBadge');
+  document.getElementById('levelBadgeTitle').textContent = name;
+  document.getElementById('levelBadgeDesc').textContent = desc;
+  badge.classList.remove('hidden');
+  setTimeout(() => { badge.classList.add('hidden'); if (cb) cb(); }, 2200);
+}
+
+// ---- DRAWING ----
+function drawRect(x, y, w, h, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(Math.round(x - w/2), Math.round(y - h/2), w, h);
+}
+
+function drawPixelChar(x, y, type, anim, stunned) {
+  const px = Math.round(x), py = Math.round(y);
+  const bob = Math.sin(anim) * 2;
+
+  if (stunned) ctx.globalAlpha = 0.6;
+
+  if (type === 'player') {
+    // Body
+    ctx.fillStyle = C.blue;
+    ctx.fillRect(px - 8, py - 14 + bob, 16, 20);
+    // Apron
+    ctx.fillStyle = C.white;
+    ctx.fillRect(px - 5, py - 10 + bob, 10, 14);
+    // Head
+    ctx.fillStyle = C.skin;
+    ctx.fillRect(px - 7, py - 28 + bob, 14, 14);
+    // Hat (chef)
+    ctx.fillStyle = C.white;
+    ctx.fillRect(px - 6, py - 38 + bob, 12, 4);
+    ctx.fillRect(px - 4, py - 46 + bob, 8, 10);
+    // Eyes
+    ctx.fillStyle = C.black;
+    ctx.fillRect(px - 4, py - 24 + bob, 3, 3);
+    ctx.fillRect(px + 1, py - 24 + bob, 3, 3);
+    // Smile
+    ctx.fillStyle = C.red;
+    ctx.fillRect(px - 3, py - 18 + bob, 6, 2);
+    // Arms
+    ctx.fillStyle = C.skin;
+    ctx.fillRect(px - 14, py - 12 + bob, 6, 4);
+    ctx.fillRect(px + 8, py - 12 + bob, 6, 4);
+    // Legs
+    ctx.fillStyle = C.darkgray;
+    const legOff = Math.sin(anim * 3) * 3;
+    ctx.fillRect(px - 7, py + 6 + bob, 6, 8 + legOff);
+    ctx.fillRect(px + 1, py + 6 + bob, 6, 8 - legOff);
+  }
+
+  else if (type === 'kid') {
+    // Body
+    ctx.fillStyle = '#f878c0';
+    ctx.fillRect(px - 6, py - 10 + bob, 12, 16);
+    // Head
+    ctx.fillStyle = C.skin;
+    ctx.fillRect(px - 6, py - 24 + bob, 12, 14);
+    // Hair
+    ctx.fillStyle = C.gold;
+    ctx.fillRect(px - 7, py - 28 + bob, 14, 6);
+    // Eyes
+    ctx.fillStyle = C.black;
+    ctx.fillRect(px - 3, py - 20 + bob, 2, 2);
+    ctx.fillRect(px + 1, py - 20 + bob, 2, 2);
+    // Mouth (hungry O)
+    ctx.fillStyle = C.red;
+    ctx.fillRect(px - 2, py - 16 + bob, 4, 3);
+    // Legs
+    ctx.fillStyle = '#7878f8';
+    const lk = Math.sin(anim * 4) * 4;
+    ctx.fillRect(px - 5, py + 6 + bob, 5, 7 + lk);
+    ctx.fillRect(px, py + 6 + bob, 5, 7 - lk);
+  }
+
+  else if (type === 'granny') {
+    // Dress
+    ctx.fillStyle = '#d870d8';
+    ctx.fillRect(px - 8, py - 8 + bob, 16, 14);
+    // Head
+    ctx.fillStyle = C.skin;
+    ctx.fillRect(px - 6, py - 22 + bob, 12, 14);
+    // Hair (white bun)
+    ctx.fillStyle = C.white;
+    ctx.fillRect(px - 7, py - 28 + bob, 14, 8);
+    ctx.fillRect(px - 4, py - 32 + bob, 8, 6);
+    // Glasses
+    ctx.fillStyle = C.brown;
+    ctx.fillRect(px - 5, py - 18 + bob, 10, 2);
+    ctx.fillStyle = C.ltblue;
+    ctx.fillRect(px - 5, py - 20 + bob, 4, 4);
+    ctx.fillRect(px + 1, py - 20 + bob, 4, 4);
+    // Walking stick
+    ctx.fillStyle = C.brown;
+    ctx.fillRect(px + 9, py - 20 + bob, 2, 24);
+    // Legs slow
+    ctx.fillStyle = '#7058a8';
+    const lg = Math.sin(anim * 2) * 2;
+    ctx.fillRect(px - 6, py + 6 + bob, 5, 6 + lg);
+    ctx.fillRect(px + 1, py + 6 + bob, 5, 6 - lg);
+  }
+
+  else if (type === 'groom') {
+    // Tuxedo
+    ctx.fillStyle = C.darkgray;
+    ctx.fillRect(px - 8, py - 12 + bob, 16, 18);
+    ctx.fillStyle = C.white;
+    ctx.fillRect(px - 3, py - 12 + bob, 6, 10);
+    // Bow tie
+    ctx.fillStyle = C.black;
+    ctx.fillRect(px - 4, py - 10 + bob, 8, 3);
+    // Head
+    ctx.fillStyle = C.skin;
+    ctx.fillRect(px - 6, py - 26 + bob, 12, 14);
+    // Slick hair
+    ctx.fillStyle = C.black;
+    ctx.fillRect(px - 7, py - 32 + bob, 14, 8);
+    ctx.fillRect(px - 5, py - 34 + bob, 10, 4);
+    // Eyes
+    ctx.fillStyle = C.black;
+    ctx.fillRect(px - 3, py - 22 + bob, 3, 3);
+    ctx.fillRect(px, py - 22 + bob, 3, 3);
+    // Determined mouth
+    ctx.fillStyle = C.darkgray;
+    ctx.fillRect(px - 3, py - 17 + bob, 6, 2);
+    // Legs
+    ctx.fillStyle = C.black;
+    const lgo = Math.sin(anim * 3.5) * 4;
+    ctx.fillRect(px - 7, py + 6 + bob, 6, 9 + lgo);
+    ctx.fillRect(px + 1, py + 6 + bob, 6, 9 - lgo);
+  }
+
+  else if (type === 'flower') {
+    // Dress
+    ctx.fillStyle = '#f8d878';
+    ctx.fillRect(px - 7, py - 10 + bob, 14, 16);
+    // Flower petals on dress
+    ctx.fillStyle = '#f878a8';
+    ctx.fillRect(px - 5, py - 6 + bob, 4, 4);
+    ctx.fillRect(px + 1, py - 6 + bob, 4, 4);
+    // Head
+    ctx.fillStyle = C.skin;
+    ctx.fillRect(px - 5, py - 24 + bob, 10, 14);
+    // Flowers in hair
+    ctx.fillStyle = '#f878a8';
+    ctx.fillRect(px - 6, py - 30 + bob, 6, 4);
+    ctx.fillRect(px, py - 30 + bob, 6, 4);
+    ctx.fillStyle = C.yellow;
+    ctx.fillRect(px - 4, py - 32 + bob, 3, 3);
+    ctx.fillRect(px + 2, py - 32 + bob, 3, 3);
+    // Basket
+    ctx.fillStyle = C.brown;
+    ctx.fillRect(px + 6, py - 8 + bob, 8, 6);
+    // Petals flying
+    const pf = Math.sin(anim * 5) * 3;
+    ctx.fillStyle = '#f878a8';
+    ctx.fillRect(px + 12, py - 12 + bob + pf, 4, 4);
+    ctx.fillRect(px - 14, py - 10 + bob - pf, 4, 4);
+    // Legs
+    ctx.fillStyle = '#f8a8d8';
+    const lfl = Math.sin(anim * 4) * 3;
+    ctx.fillRect(px - 5, py + 6 + bob, 5, 7 + lfl);
+    ctx.fillRect(px, py + 6 + bob, 5, 7 - lfl);
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+function drawFood(x, y, fi, scale) {
+  scale = scale || 1;
+  const s = fi.size * scale;
+  const px = Math.round(x), py = Math.round(y);
+
+  if (fi.name === 'cinnamon bun') {
+    ctx.fillStyle = fi.color;
+    ctx.beginPath(); ctx.arc(px, py, s, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = fi.accent;
+    ctx.beginPath(); ctx.arc(px, py, s*0.6, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = C.white;
+    ctx.beginPath(); ctx.arc(px - s*0.15, py - s*0.15, s*0.2, 0, Math.PI*2); ctx.fill();
+  } else if (fi.name === 'pancake') {
+    ctx.fillStyle = fi.color;
+    ctx.fillRect(px - s, py - s*0.4, s*2, s*0.8);
+    ctx.fillRect(px - s*0.8, py - s*0.8, s*1.6, s*0.5);
+    ctx.fillStyle = fi.accent;
+    ctx.fillRect(px - s*0.5, py - s*0.9, s, s*0.2);
+  } else if (fi.name === 'berry') {
+    ctx.fillStyle = fi.color;
+    ctx.beginPath(); ctx.arc(px, py, s, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = fi.accent;
+    ctx.beginPath(); ctx.arc(px - s*0.2, py - s*0.2, s*0.35, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = C.ltgreen;
+    ctx.fillRect(px - 1, py - s - 4, 2, 5);
+  } else if (fi.name === 'donut') {
+    ctx.fillStyle = fi.color;
+    ctx.beginPath(); ctx.arc(px, py, s, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#1a0a2e';
+    ctx.beginPath(); ctx.arc(px, py, s*0.4, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = fi.accent;
+    // sprinkles
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      ctx.fillRect(px + Math.cos(a)*s*0.7 - 1, py + Math.sin(a)*s*0.7 - 1, 2, 2);
+    }
+  } else if (fi.name === 'cupcake') {
+    ctx.fillStyle = fi.accent;
+    ctx.fillRect(px - s*0.6, py, s*1.2, s*0.9);
+    ctx.fillStyle = fi.color;
+    ctx.beginPath(); ctx.arc(px, py - s*0.1, s*0.7, Math.PI, 0); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.arc(px, py - s*0.4, s*0.35, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = C.yellow;
+    ctx.fillRect(px - 1, py - s*0.8, 2, s*0.5);
+  } else if (fi.name === 'macaron') {
+    ctx.fillStyle = fi.color;
+    ctx.fillRect(px - s, py - s*0.4, s*2, s*0.8);
+    ctx.beginPath(); ctx.arc(px, py - s*0.4, s, 0, Math.PI, true); ctx.fill();
+    ctx.beginPath(); ctx.arc(px, py + s*0.4, s, 0, Math.PI); ctx.fill();
+    ctx.fillStyle = C.white;
+    ctx.fillRect(px - s, py - s*0.1, s*2, s*0.2);
+  } else if (fi.name === 'waffle') {
+    ctx.fillStyle = fi.color;
+    ctx.fillRect(px - s, py - s, s*2, s*2);
+    ctx.fillStyle = fi.accent;
+    for (let gx = -1; gx <= 1; gx++) {
+      ctx.fillRect(px + gx*s*0.6 - 1, py - s, 2, s*2);
+    }
+    for (let gy = -1; gy <= 1; gy++) {
+      ctx.fillRect(px - s, py + gy*s*0.6 - 1, s*2, 2);
+    }
+    ctx.fillStyle = C.gold;
+    ctx.beginPath(); ctx.arc(px, py, s*0.4, 0, Math.PI*2); ctx.fill();
+  } else if (fi.name === 'eclair') {
+    ctx.fillStyle = fi.color;
+    ctx.fillRect(px - s, py - s*0.4, s*2, s*0.8);
+    ctx.fillStyle = fi.accent;
+    ctx.fillRect(px - s*0.7, py - s*0.3, s*1.4, s*0.4);
+  }
+}
+
+function drawBuffet() {
+  // Table cloth
+  ctx.fillStyle = C.white;
+  ctx.fillRect(BUFFET.x - 4, BUFFET.y - 4, BUFFET.w + 8, BUFFET.h + 8);
+  ctx.fillStyle = '#e8d0f8';
+  // Checkered pattern
+  for (let gx = 0; gx < BUFFET.w / 16; gx++) {
+    for (let gy = 0; gy < BUFFET.h / 16; gy++) {
+      if ((gx + gy) % 2 === 0) {
+        ctx.fillStyle = '#d8c0e8';
+        ctx.fillRect(BUFFET.x + gx * 16, BUFFET.y + gy * 16, 16, 16);
+      }
+    }
+  }
+  // Table border
+  ctx.strokeStyle = C.purple;
+  ctx.lineWidth = 3;
+  ctx.strokeRect(BUFFET.x - 4, BUFFET.y - 4, BUFFET.w + 8, BUFFET.h + 8);
+  ctx.lineWidth = 1;
+  // Table front skirt
+  ctx.fillStyle = '#d8c0e8';
+  ctx.fillRect(BUFFET.x - 4, BUFFET.y + BUFFET.h + 4, BUFFET.w + 8, 8);
+  // Sign
+  ctx.fillStyle = C.yellow;
+  ctx.font = 'bold 10px Courier New';
+  ctx.textAlign = 'center';
+  ctx.fillText('✦ WEDDING BUFFET ✦', BUFFET.x + BUFFET.w/2, BUFFET.y - 8);
+  ctx.textAlign = 'left';
+
+  // Draw food items
+  foodItems.forEach(fi => {
+    if (!fi.eaten) {
+      drawFood(fi.x, fi.y, fi.type);
+    }
+  });
+}
+
+function drawFloor() {
+  // Floor tiles
+  for (let x = 0; x < W; x += 32) {
+    for (let y = BUFFET.y + BUFFET.h + 12; y < H; y += 32) {
+      ctx.fillStyle = (Math.floor(x/32) + Math.floor(y/32)) % 2 === 0 ? '#f8f0e8' : '#e8e0d8';
+      ctx.fillRect(x, y, 32, 32);
+    }
+  }
+  // Walls
+  ctx.fillStyle = '#c8b8e8';
+  ctx.fillRect(0, 0, W, BUFFET.y + BUFFET.h + 12);
+  // Wall pattern
+  ctx.fillStyle = '#b8a8d8';
+  for (let x = 0; x < W; x += 24) {
+    ctx.fillRect(x, 0, 2, BUFFET.y + BUFFET.h + 12);
+  }
+  for (let y = 0; y < BUFFET.y; y += 16) {
+    ctx.fillRect(0, y, W, 2);
+  }
+}
+
+function drawProjectile(p) {
+  ctx.save();
+  ctx.translate(Math.round(p.x), Math.round(p.y));
+  ctx.rotate(p.spin);
+  drawFood(0, 0, p.type, 0.7);
+  ctx.restore();
+}
+
+function drawParticles() {
+  particles.forEach(p => {
+    const alpha = p.life / p.maxLife;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(Math.round(p.x - p.size/2), Math.round(p.y - p.size/2), p.size, p.size);
+  });
+  ctx.globalAlpha = 1;
+}
+
+function drawHpBar(x, y, hp, maxHp) {
+  if (maxHp <= 1) return;
+  ctx.fillStyle = C.red;
+  ctx.fillRect(x - 10, y - 38, 20, 4);
+  ctx.fillStyle = C.ltgreen;
+  ctx.fillRect(x - 10, y - 38, 20 * (hp / maxHp), 4);
+}
+
+// ---- UPDATE ----
+function update() {
+  if (state !== 'playing') return;
+  frameCount++;
+
+  const cfg = LEVELS[Math.min(level - 1, LEVELS.length - 1)];
+
+  // Player movement
+  let dx = 0, dy = 0;
+  if (keys['ArrowLeft']  || keys['a']) dx -= 1;
+  if (keys['ArrowRight'] || keys['d']) dx += 1;
+  if (keys['ArrowUp']    || keys['w']) dy -= 1;
+  if (keys['ArrowDown']  || keys['s']) dy += 1;
+
+  if (dx !== 0 || dy !== 0) {
+    const len = Math.sqrt(dx*dx + dy*dy);
+    player.vx = (dx/len) * player.speed;
+    player.vy = (dy/len) * player.speed;
+    if (dx > 0) player.facing = 'right';
+    if (dx < 0) player.facing = 'left';
+    if (dy < 0 && dx === 0) player.facing = 'up';
+    if (dy > 0 && dx === 0) player.facing = 'down';
+    player.anim += 0.15;
+  } else {
+    player.vx *= 0.7;
+    player.vy *= 0.7;
+  }
+
+  player.x = Math.max(12, Math.min(W - 12, player.x + player.vx));
+  player.y = Math.max(BUFFET.y + BUFFET.h + 30, Math.min(H - 20, player.y + player.vy));
+
+  if (player.throwCooldown > 0) player.throwCooldown--;
+
+  // Throw
+  if (keys[' '] && player.throwCooldown === 0) {
+    throwProjectile();
+  }
+
+  // Spawn guests
+  const spawnedSoFar = guestsDefeated + guests.length;
+  if (spawnedSoFar < guestsNeeded) {
+    spawnTimer++;
+    if (spawnTimer >= cfg.spawnRate) {
+      spawnGuest(cfg);
+      spawnTimer = 0;
+    }
+  }
+
+  // Update guests
+  guests.forEach(g => {
+    g.anim += 0.1;
+    if (g.stunTimer > 0) { g.stunTimer--; return; }
+
+    // Move toward buffet
+    const targetX = BUFFET.x + BUFFET.w/2 + (Math.random()-0.5)*100;
+    const targetY = BUFFET.y + BUFFET.h + 10;
+    const gdx = targetX - g.x, gdy = targetY - g.y;
+    const dist = Math.sqrt(gdx*gdx + gdy*gdy);
+
+    if (dist > 5) {
+      const speed = g.vx < 0 ? -Math.abs(g.vx) : Math.abs(g.vx);
+      const actualSpeed = Math.abs(speed);
+      g.x += (gdx/dist) * actualSpeed;
+      g.y += (gdy/dist) * actualSpeed * 0.6;
+    }
+
+    // At buffet?
+    if (g.y <= BUFFET.y + BUFFET.h + 15 && g.x > BUFFET.x - 20 && g.x < BUFFET.x + BUFFET.w + 20) {
+      g.atBuffet = true;
+      g.eatTimer++;
+      if (g.eatTimer % 60 === 0) {
+        // Eat a food item
+        const available = foodItems.filter(f => !f.eaten);
+        if (available.length > 0) {
+          const eaten = available[Math.floor(Math.random() * available.length)];
+          eaten.eaten = true;
+          spawnParticles(eaten.x, eaten.y, eaten.type.color, 8);
+          score = Math.max(0, score - 50);
+          updateUI();
+          if (available.length <= 1) {
+            // Last food eaten — game over
+            setTimeout(() => endGame(false), 500);
+          }
+        }
+      }
+    }
+  });
+
+  // Update projectiles
+  projectiles.forEach(p => {
+    p.x += p.vx;
+    p.y += p.vy;
+    p.spin += p.spinSpeed;
+    p.life--;
+
+    // Hit guests
+    guests.forEach(g => {
+      if (g.stunTimer > 0) return;
+      const dx = p.x - g.x, dy = p.y - g.y;
+      if (Math.abs(dx) < 16 && Math.abs(dy) < 20) {
+        g.hp--;
+        g.stunTimer = 60;
+        g.wobble = 10;
+        spawnParticles(g.x, g.y, p.type.color, 6);
+        p.life = 0;
+        if (g.hp <= 0) {
+          g.dead = true;
+          score += g.type === 'groom' ? 200 : 100;
+          guestsDefeated++;
+          spawnParticles(g.x, g.y - 15, C.yellow, 12);
+          updateUI();
+        }
+      }
+    });
+  });
+
+  // Remove dead/expired
+  projectiles = projectiles.filter(p => p.life > 0);
+  guests = guests.filter(g => !g.dead);
+
+  // Update particles
+  particles.forEach(p => {
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.1;
+    p.life--;
+  });
+  particles = particles.filter(p => p.life > 0);
+
+  // Level complete?
+  if (guestsDefeated >= guestsNeeded && guests.length === 0) {
+    state = 'levelup';
+    setTimeout(nextLevel, 500);
+  }
+}
+
+function nextLevel() {
+  const nextLvl = level + 1;
+  if (nextLvl > LEVELS.length + 2) {
+    endGame(true);
+    return;
+  }
+  level = nextLvl;
+  const cfg = LEVELS[Math.min(level - 1, LEVELS.length - 1)];
+  showLevelBadge(cfg.name, cfg.desc, () => {
+    initLevel(level);
+    state = 'playing';
+  });
+}
+
+function endGame(won) {
+  state = won ? 'win' : 'gameover';
+  const overlay = document.getElementById('overlay');
+  overlay.innerHTML = won
+    ? `<h1>YOU WIN!</h1><p>The buffet is saved!</p><p>Final Score: ${score}</p><button id="startBtn" onclick="startGame()">PLAY AGAIN</button>`
+    : `<h1>GAME OVER</h1><p>The guests ate everything...</p><p>Final Score: ${score}</p><button id="startBtn" onclick="startGame()">TRY AGAIN</button>`;
+  overlay.classList.remove('hidden');
+}
+
+function startGame() {
+  score = 0;
+  level = 1;
+  state = 'playing';
+  document.getElementById('overlay').classList.add('hidden');
+  document.getElementById('levelBadge').classList.add('hidden');
+  initPlayer();
+  initLevel(1);
+  const cfg = LEVELS[0];
+  showLevelBadge(cfg.name, cfg.desc, null);
+}
+
+// ---- RENDER ----
+function render() {
+  ctx.fillStyle = '#c8b8e8';
+  ctx.fillRect(0, 0, W, H);
+
+  drawFloor();
+  drawBuffet();
+
+  // Draw guests behind projectiles
+  guests.forEach(g => {
+    drawPixelChar(g.x, g.y, g.type, g.anim, g.stunTimer > 0);
+    drawHpBar(g.x, g.y, g.hp, g.maxHp);
+  });
+
+  projectiles.forEach(p => drawProjectile(p));
+
+  if (player) {
+    drawPixelChar(player.x, player.y, 'player', player.anim, false);
+    // Throw cooldown bar
+    if (player.throwCooldown > 0) {
+      ctx.fillStyle = C.darkgray;
+      ctx.fillRect(player.x - 12, player.y + 18, 24, 4);
+      ctx.fillStyle = C.yellow;
+      ctx.fillRect(player.x - 12, player.y + 18, 24 * (1 - player.throwCooldown/18), 4);
+    }
+  }
+
+  drawParticles();
+}
+
+// ---- TITLE SCREEN ----
+function renderTitle() {
+  ctx.fillStyle = '#1a0a2e';
+  ctx.fillRect(0, 0, W, H);
+  // Stars
+  for (let i = 0; i < 60; i++) {
+    ctx.fillStyle = i % 3 === 0 ? C.yellow : C.white;
+    const sx = (i * 173 % W), sy = (i * 97 % (H/2));
+    ctx.fillRect(sx, sy, 2, 2);
+  }
+  // Preview buffet
+  ctx.save();
+  ctx.translate(0, 50);
+  drawBuffet();
+  ctx.restore();
+}
+
+// ---- GAME LOOP ----
+function gameLoop() {
+  if (state === 'title') {
+    renderTitle();
+  } else {
+    update();
+    render();
+  }
+  requestAnimationFrame(gameLoop);
+}
+
+// ---- INPUT ----
+document.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if (e.key === ' ') e.preventDefault();
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) e.preventDefault();
+});
+document.addEventListener('keyup', e => { keys[e.key] = false; });
+
+document.getElementById('startBtn').addEventListener('click', startGame);
+
+gameLoop();
+</script>
+</body>
+</html>
