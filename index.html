@@ -240,6 +240,7 @@ const LEVELS = [
   { name: 'LEVEL 3', desc: 'The groomsmen arrive!',guestType: 'groom',  count: 12, speed: 1.5, spawnRate: 90  },
   { name: 'LEVEL 4', desc: 'Flower girls charge!', guestType: 'flower', count: 14, speed: 1.8, spawnRate: 80  },
   { name: 'LEVEL 5', desc: 'THE WHOLE WEDDING!',   guestType: 'mixed',  count: 20, speed: 2.0, spawnRate: 60  },
+  { name: 'LEVEL 6', desc: "HERE COMES THE BRIDE!", guestType: 'bride', count: 6,  speed: 2.4, spawnRate: 180 },
 ];
 
 const FOOD_ITEMS = [
@@ -304,18 +305,19 @@ function spawnGuest(cfg) {
   else if (type === 'flower') extra.speed = cfg.speed * 1.1;
   else extra.speed = cfg.speed;
 
+  const hp = type === 'groom' ? 2 : type === 'bride' ? 4 : 1;
   guests.push({
     x, y, w: 20, h: 30, type,
     vx: (side === 'left' ? 1 : -1) * extra.speed,
     vy: 0,
-    hp: type === 'groom' ? 2 : 1,
-    maxHp: type === 'groom' ? 2 : 1,
+    hp, maxHp: hp,
     anim: Math.random() * Math.PI * 2,
     stunTimer: 0,
     atBuffet: false,
     eatTimer: 0,
     side,
-    wobble: 0
+    wobble: 0,
+    dashTimer: type === 'bride' ? 0 : -1,
   });
 }
 
@@ -527,6 +529,55 @@ function drawPixelChar(x, y, type, anim, stunned) {
     ctx.fillRect(px, py + 6 + bob, 5, 7 - lfl);
   }
 
+  else if (type === 'bride') {
+    // Veil (flowing behind)
+    ctx.fillStyle = '#ffffffaa';
+    ctx.fillRect(px - 10, py - 38 + bob, 20, 30);
+    ctx.fillRect(px - 8,  py - 8  + bob, 16, 20);
+    // Big dress
+    ctx.fillStyle = C.white;
+    ctx.fillRect(px - 12, py - 10 + bob, 24, 18);
+    ctx.fillRect(px - 16, py + 4  + bob, 32, 10);
+    // Dress detail
+    ctx.fillStyle = '#f0e0f8';
+    ctx.fillRect(px - 10, py - 8 + bob, 6, 14);
+    ctx.fillRect(px + 4,  py - 8 + bob, 6, 14);
+    // Head
+    ctx.fillStyle = C.skin;
+    ctx.fillRect(px - 7, py - 28 + bob, 14, 14);
+    // Hair up
+    ctx.fillStyle = C.gold;
+    ctx.fillRect(px - 8, py - 36 + bob, 16, 10);
+    ctx.fillRect(px - 5, py - 40 + bob, 10, 6);
+    // Tiara
+    ctx.fillStyle = C.yellow;
+    ctx.fillRect(px - 6, py - 42 + bob, 12, 3);
+    ctx.fillStyle = C.teal;
+    ctx.fillRect(px - 1, py - 44 + bob, 2, 4);
+    ctx.fillRect(px - 4, py - 43 + bob, 2, 3);
+    ctx.fillRect(px + 3,  py - 43 + bob, 2, 3);
+    // Eyes (angry!)
+    ctx.fillStyle = C.black;
+    ctx.fillRect(px - 4, py - 24 + bob, 3, 2);
+    ctx.fillRect(px + 1, py - 24 + bob, 3, 2);
+    // Angry eyebrows
+    ctx.fillStyle = C.brown;
+    ctx.fillRect(px - 5, py - 27 + bob, 4, 2);
+    ctx.fillRect(px + 1, py - 27 + bob, 4, 2);
+    // Bouquet
+    ctx.fillStyle = '#f878a8';
+    ctx.fillRect(px + 10, py - 8 + bob, 10, 8);
+    ctx.fillStyle = '#f8d878';
+    ctx.fillRect(px + 12, py - 12 + bob, 6, 6);
+    ctx.fillStyle = C.ltgreen;
+    ctx.fillRect(px + 14, py - 4 + bob, 2, 8);
+    // Legs (under big dress)
+    ctx.fillStyle = '#e8d8f0';
+    const lbr = Math.sin(anim * 2.5) * 2;
+    ctx.fillRect(px - 7, py + 14 + bob, 6, 5 + lbr);
+    ctx.fillRect(px + 1, py + 14 + bob, 6, 5 - lbr);
+  }
+
   ctx.globalAlpha = 1;
 }
 
@@ -639,17 +690,25 @@ function drawBuffet() {
 }
 
 function drawFloor() {
-  // Floor tiles
+  // Grass base
   for (let x = 0; x < W; x += 32) {
     for (let y = BUFFET.y + BUFFET.h + 12; y < H; y += 32) {
-      ctx.fillStyle = (Math.floor(x/32) + Math.floor(y/32)) % 2 === 0 ? '#f8f0e8' : '#e8e0d8';
+      ctx.fillStyle = (Math.floor(x/32) + Math.floor(y/32)) % 2 === 0 ? '#38a820' : '#2e8c18';
       ctx.fillRect(x, y, 32, 32);
     }
   }
-  // Walls
+  // Grass tufts
+  ctx.fillStyle = '#48c828';
+  for (let x = 8; x < W; x += 20) {
+    for (let y = BUFFET.y + BUFFET.h + 18; y < H; y += 24) {
+      ctx.fillRect(x,     y, 2, 5);
+      ctx.fillRect(x + 3, y - 2, 2, 7);
+      ctx.fillRect(x + 6, y, 2, 5);
+    }
+  }
+  // Walls / venue interior
   ctx.fillStyle = '#c8b8e8';
   ctx.fillRect(0, 0, W, BUFFET.y + BUFFET.h + 12);
-  // Wall pattern
   ctx.fillStyle = '#b8a8d8';
   for (let x = 0; x < W; x += 24) {
     ctx.fillRect(x, 0, 2, BUFFET.y + BUFFET.h + 12);
@@ -657,6 +716,9 @@ function drawFloor() {
   for (let y = 0; y < BUFFET.y; y += 16) {
     ctx.fillRect(0, y, W, 2);
   }
+  // Grass/venue divider line
+  ctx.fillStyle = '#8B5e3c';
+  ctx.fillRect(0, BUFFET.y + BUFFET.h + 10, W, 4);
 }
 
 function drawProjectile(p) {
@@ -738,6 +800,38 @@ function update() {
     g.anim += 0.1;
     if (g.stunTimer > 0) { g.stunTimer--; return; }
 
+    // Bride dash mechanic
+    if (g.type === 'bride') {
+      g.dashTimer++;
+      if (g.dashTimer > 0 && g.dashTimer % 180 === 0) {
+        // Dash straight toward buffet for 30 frames
+        g.dashing = 30;
+      }
+      if (g.dashing > 0) {
+        g.dashing--;
+        g.x += (g.side === 'left' ? 1 : -1) * 5;
+        g.y += (BUFFET.y + BUFFET.h + 10 - g.y) * 0.12;
+        spawnParticles(g.x, g.y, '#ffffff', 1);
+        // Skip normal movement
+        if (g.y <= BUFFET.y + BUFFET.h + 15 && g.x > BUFFET.x - 20 && g.x < BUFFET.x + BUFFET.w + 20) {
+          g.atBuffet = true;
+          g.eatTimer++;
+          if (g.eatTimer % 40 === 0) {
+            const available = foodItems.filter(f => !f.eaten);
+            if (available.length > 0) {
+              const eaten = available[Math.floor(Math.random() * available.length)];
+              eaten.eaten = true;
+              spawnParticles(eaten.x, eaten.y, eaten.type.color, 8);
+              score = Math.max(0, score - 50);
+              updateUI();
+              if (available.length <= 1) setTimeout(() => endGame(false), 500);
+            }
+          }
+        }
+        return;
+      }
+    }
+
     // Move toward buffet
     const targetX = BUFFET.x + BUFFET.w/2 + (Math.random()-0.5)*100;
     const targetY = BUFFET.y + BUFFET.h + 10;
@@ -792,7 +886,7 @@ function update() {
         p.life = 0;
         if (g.hp <= 0) {
           g.dead = true;
-          score += g.type === 'groom' ? 200 : 100;
+          score += g.type === 'bride' ? 500 : g.type === 'groom' ? 200 : 100;
           guestsDefeated++;
           spawnParticles(g.x, g.y - 15, C.yellow, 12);
           updateUI();
@@ -823,7 +917,7 @@ function update() {
 
 function nextLevel() {
   const nextLvl = level + 1;
-  if (nextLvl > LEVELS.length + 2) {
+  if (nextLvl > LEVELS.length) {
     endGame(true);
     return;
   }
