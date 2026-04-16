@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Buffet Boy</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -107,6 +107,73 @@
     letter-spacing: 1px;
     text-align: center;
   }
+
+  /* ---- Touch controls ---- */
+  #touchControls {
+    display: none;
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 140px;
+    pointer-events: none;
+    z-index: 8;
+  }
+  #dpad {
+    position: absolute;
+    bottom: 16px; left: 16px;
+    width: 120px; height: 120px;
+    pointer-events: none;
+  }
+  .dpad-btn {
+    position: absolute;
+    width: 38px; height: 38px;
+    background: #ffffff33;
+    border: 2px solid #f8f878aa;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    color: #f8f878;
+    cursor: pointer;
+    pointer-events: all;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    transition: background 0.08s;
+  }
+  .dpad-btn:active, .dpad-btn.pressed { background: #f8f87866; }
+  #btn-up    { top: 0;   left: 41px; }
+  #btn-down  { bottom: 0; left: 41px; }
+  #btn-left  { top: 41px; left: 0; }
+  #btn-right { top: 41px; right: 0; }
+
+  #throwBtn {
+    position: absolute;
+    bottom: 24px; right: 20px;
+    width: 80px; height: 80px;
+    background: #f8380066;
+    border: 3px solid #f8f878;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    font-weight: bold;
+    color: #f8f878;
+    cursor: pointer;
+    pointer-events: all;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    letter-spacing: 1px;
+    transition: background 0.08s;
+  }
+  #throwBtn:active, #throwBtn.pressed { background: #f83800bb; }
+  #throwBtn span { font-size: 22px; line-height: 1; }
+
+  @media (pointer: coarse), (max-width: 700px) {
+    #touchControls { display: block; }
+    #controls { display: none; }
+    body { justify-content: flex-start; padding-top: 8px; }
+  }
 </style>
 </head>
 <body>
@@ -120,12 +187,25 @@
   <div id="overlay">
     <h1>BUFFET BOY</h1>
     <p>Protect the buffet from hungry wedding guests!</p>
-    <p class="sub">Arrow Keys: Move &nbsp;|&nbsp; SPACE: Throw Food</p>
+    <p class="sub">Arrow Keys / D-Pad: Move &nbsp;|&nbsp; SPACE / Throw Button: Throw Food</p>
     <button id="startBtn">START GAME</button>
   </div>
   <div id="levelBadge" class="hidden">
     <h2 id="levelBadgeTitle">LEVEL 1</h2>
     <p id="levelBadgeDesc">Here come the kids!</p>
+  </div>
+
+  <!-- Touch controls -->
+  <div id="touchControls">
+    <div id="dpad">
+      <div class="dpad-btn" id="btn-up"    data-key="ArrowUp">▲</div>
+      <div class="dpad-btn" id="btn-left"  data-key="ArrowLeft">◀</div>
+      <div class="dpad-btn" id="btn-right" data-key="ArrowRight">▶</div>
+      <div class="dpad-btn" id="btn-down"  data-key="ArrowDown">▼</div>
+    </div>
+    <div id="throwBtn">
+      <span>🥐</span>THROW
+    </div>
   </div>
 </div>
 <div id="controls">ARROW KEYS: Move &nbsp;|&nbsp; SPACE: Throw &nbsp;|&nbsp; Protect the buffet!</div>
@@ -843,6 +923,34 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keyup', e => { keys[e.key] = false; });
 
 document.getElementById('startBtn').addEventListener('click', startGame);
+
+// ---- TOUCH CONTROLS ----
+function bindDpadBtn(el) {
+  const key = el.dataset.key;
+  el.addEventListener('touchstart', e => { e.preventDefault(); keys[key] = true;  el.classList.add('pressed'); }, { passive: false });
+  el.addEventListener('touchend',   e => { e.preventDefault(); keys[key] = false; el.classList.remove('pressed'); }, { passive: false });
+  el.addEventListener('touchcancel',e => { keys[key] = false; el.classList.remove('pressed'); });
+}
+document.querySelectorAll('.dpad-btn').forEach(bindDpadBtn);
+
+const throwBtn = document.getElementById('throwBtn');
+throwBtn.addEventListener('touchstart', e => { e.preventDefault(); keys[' '] = true;  throwBtn.classList.add('pressed'); }, { passive: false });
+throwBtn.addEventListener('touchend',   e => { e.preventDefault(); keys[' '] = false; throwBtn.classList.remove('pressed'); }, { passive: false });
+throwBtn.addEventListener('touchcancel',e => { keys[' '] = false; throwBtn.classList.remove('pressed'); });
+
+// ---- RESPONSIVE SCALING ----
+function scaleGame() {
+  const container = document.getElementById('gameContainer');
+  const maxW = window.innerWidth - 8;
+  const scale = Math.min(1, maxW / 640);
+  container.style.transform = `scale(${scale})`;
+  container.style.transformOrigin = 'top center';
+  // Reserve space for touch controls on mobile
+  const isTouchDevice = window.matchMedia('(pointer: coarse)').matches || window.innerWidth <= 700;
+  container.style.marginBottom = isTouchDevice ? `${140 * scale}px` : '0';
+}
+window.addEventListener('resize', scaleGame);
+scaleGame();
 
 gameLoop();
 </script>
